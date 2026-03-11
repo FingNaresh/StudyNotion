@@ -12,7 +12,7 @@ const otpSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now(),
-    expires: 300,
+    expires: 5 * 60,
   },
 });
 
@@ -36,4 +36,4 @@ otpSchema.pre("save", async function (next) {
   next();
 });
 
-module.exports = mongoose.model("otp", otpSchema);
+module.exports = mongoose.model("OTP", otpSchema);
