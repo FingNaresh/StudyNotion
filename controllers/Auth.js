@@ -1,9 +1,10 @@
 const User = require("../models/User");
-const OTP = require("../models/OTP");
+const OTP = require("../models/Otp");
 const otpGenerator = require("otp-generator");
 const bcrypt = require("bcrypt");
 const Profile = require("../models/Profile");
-
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 
 // sendOTP
 exports.sendOTP = async (req, res) => {
@@ -166,5 +167,130 @@ exports.signup = async (req, res) => {
 };
 
 // Login
+exports.login = async (req, res) => {
+  try {
+    // data fetch from request ki body
+    const { email, password } = req.body;
+    // validate karlo
+    if (!email || !password) {
+      return res.status(403).json({
+        success: false,
+        message: "All fields are required,please try again",
+      });
+    }
+    // check user already exist or not
+    const user = await User.findOne({ email }).populate("additionalDetails");
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User is not registered, please signup first",
+      });
+    }
+    // generate JWT ,after password matching
+    if (await bcrypt.compare(password, user.password)) {
+      const payload = {
+        email: user.email,
+        id: user._id,
+        accountType: user.accountType,
+      };
+      const token = jwt.sign(payload, process.env.JWT_SECRET, {
+        expiresIn: "2h",
+      });
+      user.token = token;
+      user.password = undefined;
+      const options = {
+        expires: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        httpOnly: true,
+      };
+
+      // create cookie and send response
+      res.cookie("token", token, options).status(200).json({
+        success: true,
+        token,
+        user,
+        message: "Logged in successfully",
+      });
+    } else {
+      return res.status(401).json({
+        success: false,
+        message: "Password is incrorect, please try again",
+      });
+    }
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: "User cannot be logged in. Please try again later",
+    });
+  }
+};
 
 // changePassword
+exports.changePassword = async (req, res) => {
+  try {
+    // 1. Fetch data from request body
+    // Note: 'id' usually comes from the decoded JWT token (req.user) rather than params for security
+    const { oldPassword, newPassword, confirmPassword } = req.body;
+    const userId = req.user.id;
+
+    // 2. Validation
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return res.status(401).json({
+        success: false,
+        message: "All fields are required.",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password and confirm password do not match.",
+      });
+    }
+
+    // 3. Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // 4. Verify old password
+    const isPasswordMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isPasswordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Old password is incorrect.",
+      });
+    }
+
+    // 5. Hash new password and update DB
+    const encryptedPassword = await bcrypt.hash(newPassword, 10);
+    const updatedUserDetails = await User.findByIdAndUpdate(
+      userId,
+      { password: encryptedPassword },
+      { new: true },
+    );
+
+    // 6. Send confirmation email (Optional but recommended)
+    try {
+      // await mailSender(user.email, "Password Updated", "Your password has been updated successfully.");
+    } catch (error) {
+      console.error("Error occurred while sending mail:", error);
+    }
+
+    // 7. Return response
+    return res.status(200).json({
+      success: true,
+      message: "Password updated successfully.",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while changing the password.",
+    });
+  }
+};
